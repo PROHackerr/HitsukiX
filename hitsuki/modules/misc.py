@@ -11,13 +11,12 @@
 # GNU Affero General Public License for more details.
 
 import httpx
-import wikipediaapi
 from contextlib import suppress
 from datetime import datetime
 
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import Message
 from aiogram.utils.exceptions import BadRequest, MessageNotModified, MessageToDeleteNotFound
 
 from hitsuki import decorator
@@ -26,7 +25,7 @@ from .utils.disable import disableable_dec
 from .utils.language import get_strings_dec
 from .utils.notes import get_parsed_note_list, send_note, t_unparse_note_item
 from .utils.user_details import is_user_admin
-from .utils.message import get_args_str, get_args, need_args_dec, get_cmd
+from .utils.message import get_args_str, need_args_dec, get_cmd
 
 
 @register(cmds='buttonshelp', no_args=True, only_pm=True)
@@ -93,27 +92,7 @@ Variables are special words which will be replaced by actual info
     )
 
 
-@decorator.register(cmds=['wiki', 'wikipedia'])
-@need_args_dec()
-@disableable_dec('wiki')
-async def wiki(message):
-    args = get_args_str(message)
-    wiki = wikipediaapi.Wikipedia("en")
-
-    page = wiki.page(args)
-
-    if page.exists() is False:
-        await message.reply("No results were found!")
-        return
-
-    button = InlineKeyboardMarkup().add(InlineKeyboardButton(text="Read more...", url=page.fullurl))
-    await message.reply(
-        ("The result of {} is:\n\n<b>{}</b>\n{}...").format(args, page.title, page.summary[0:500]),
-        reply_markup=button,
-    )
-
-
-@decorator.register(cmds=['github', 'git'])
+@decorator.register(cmds=['github', 'git', 'repo'])
 @need_args_dec()
 @disableable_dec('github')
 async def github(message):
@@ -158,14 +137,24 @@ async def github(message):
                     else:
                         text += ("\n<b>{}:</b> <code>{}</code>".format(x, y))
         reply_text = text
-    else:
-        reply_text = "User not found. Make sure you entered valid username!"
+    elif not usr.get('login'):
+        await http.aclose()
+        await message.reply("User not found. Make sure you entered valid username!")
+        return
 
-    http.aclose
-    if usr["avatar_url"]:
-        await message.reply_photo(photo=usr["avatar_url"], caption=reply_text)
-    else:
-        await message.reply(reply_text, disable_web_page_preview=True)
+    await http.aclose()
+    if get_cmd(message) == "repo":
+        async with httpx.AsyncClient(http2=True) as http:
+            r = await http.get(f'https://api.github.com/users/{args}/repos?per_page=40')
+            response = r.json()
+            reply_text += "<b>\n\nRepositories:</b>\n"
+            for i in range(len(response)):
+                if i == 40:
+                    break
+                reply_text += f"{i + 1}. <a href='https://github.com/{response[i]['html_url']}'>{response[i]['name']}</a>\n"
+            await http.aclose()
+
+    await message.reply(reply_text, disable_web_page_preview=True)
 
 
 @register(cmds='ping')
@@ -245,12 +234,12 @@ __filters__ = {
 __mod_name__ = "Misc"
 
 __help__ = """
-An "odds and ends" module for small, simple commands which don't really fit anywhere.
+A module with some useful commands but without a specific category.
 
 <b>Available commands:</b>
 - /direct (url): Generates direct links from the sourceforge.net
 - /github (username): Returns info about a GitHub user or organization.
-- /wiki (keywords): Get wikipedia articles just using this bot.
+- /repo (username): Similar to the <code>/github</code> command but also having the list of user repositories.
 - /cancel: Disables current state. Can help in cases if Hitsuki not responing on your message.
 - /id: get the current group id. If used by replying to a message, gets that user's id.
 - /info: get information about a user.

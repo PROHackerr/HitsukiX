@@ -13,9 +13,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import time
 import httpx
 import rapidjson as json
-from yaml import load, Loader
 from bs4 import BeautifulSoup
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -23,7 +23,7 @@ from hitsuki import decorator
 from hitsuki.decorator import register
 from .utils.android import GetDevice
 from .utils.disable import disableable_dec
-from .utils.message import get_arg
+from .utils.message import get_arg, get_cmd
 
 MIUI_FIRM = "https://raw.githubusercontent.com/XiaomiFirmwareUpdater/miui-updates-tracker/master/data/latest.yml"
 REALME_FIRM = "https://raw.githubusercontent.com/RealmeUpdater/realme-updates-tracker/master/data/latest.yml"
@@ -88,97 +88,6 @@ async def variants(message):
 
     await http.aclose()
     await message.reply(m)
-
-
-@register(cmds="miui")
-@disableable_dec("miui")
-async def miui(message):
-    codename = get_arg(message)
-    if not codename:
-        m = "Please write a codename, example: <code>/miui whyred</code>"
-        await message.reply(m)
-        return
-
-    async with httpx.AsyncClient(http2=True) as http:
-        yaml_data = await http.get(MIUI_FIRM)
-        db = load(yaml_data.content, Loader=Loader)
-
-    data = [i for i in db if codename in i["codename"]]
-
-    if len(data) < 1:
-        await message.reply("Provide a valid codename!")
-        return
-
-    for fw in data:
-        av = fw["android"]
-        branch = fw["branch"]
-        method = fw["method"]
-        link = fw["link"]
-        fname = fw["name"]
-        version = fw["version"]
-        size = fw["size"]
-        date = fw["date"]
-        md5 = fw["md5"]
-        codename = fw["codename"]
-
-        btn = branch + " | " + method + " | " + version
-
-        button = InlineKeyboardMarkup().add(InlineKeyboardButton(text=btn, url=link))
-
-    text = f"<b>MIUI - Last build for {codename}:</b>"
-    text += f"\n\n<b>Name:</b> <code>{fname}</code>"
-    text += f"\n<b>Android:</b> <code>{av}</code>"
-    text += f"\n<b>Size:</b> <code>{size}</code>"
-    text += f"\n<b>Date:</b> <code>{date}</code>"
-    text += f"\n<b>MD5:</b> <code>{md5}</code>"
-
-    await http.aclose()
-    await message.reply(text, reply_markup=button)
-
-
-@register(cmds="realmeui")
-@disableable_dec("realmeui")
-async def realmeui(message):
-    codename = get_arg(message)
-    if not codename:
-        m = "Please write a codename, example: <code>/realmeui RMX2061</code>"
-        await message.reply(m)
-        return
-
-    async with httpx.AsyncClient(http2=True) as http:
-        yaml_data = await http.get(REALME_FIRM)
-        db = load(yaml_data.content, Loader=Loader)
-
-    data = [i for i in db if codename in i["codename"]]
-
-    if len(data) < 1:
-        await message.reply("Provide a valid codename!")
-        return
-
-    for fw in data:
-        reg = fw["region"]
-        link = fw["download"]
-        device = fw["device"]
-        version = fw["version"]
-        cdn = fw["codename"]
-        sys = fw["system"]
-        size = fw["size"]
-        date = fw["date"]
-        md5 = fw["md5"]
-
-        btn = reg + " | " + version
-
-        button = InlineKeyboardMarkup().add(InlineKeyboardButton(text=btn, url=link))
-
-    text = f"<b>RealmeUI - Last build for {codename}:</b>"
-    text += f"\n\n<b>Device:</b> <code>{device}</code>"
-    text += f"\n<b>System:</b> <code>{sys}</code>"
-    text += f"\n<b>Size:</b> <code>{size}</code>"
-    text += f"\n<b>Date:</b> <code>{date}</code>"
-    text += f"\n<b>MD5:</b> <code>{md5}</code>"
-
-    await http.aclose()
-    await message.reply(text, reply_markup=button)
 
 
 @register(cmds="magisk")
@@ -291,10 +200,11 @@ async def twrp(message):
         return
 
     else:
-        m = f"<b>Latest TWRP for {device}</b>\n"
+        m = "<b><u>TeamWin Recovery <i>official</i> release</u></b>\n"
+        m += f"  <b>Device:</b> {device}\n"
         page = BeautifulSoup(url.content, "lxml")
         date = page.find("em").text.strip()
-        m += f"📅 <b>Updated:</b> <code>{date}</code>\n"
+        m += f"  <b>Updated:</b> <code>{date}</code>\n"
         trs = page.find("table").find_all("tr")
         row = 2 if trs[0].find("a").text.endswith("tar") else 1
 
@@ -303,16 +213,16 @@ async def twrp(message):
             dl_link = f"https://dl.twrp.me{download['href']}"
             dl_file = download.text
             size = trs[i].find("span", {"class": "filesize"}).text
-        m += f"📥 <b>Size:</b> <code>{size}</code>\n"
-        m += f"📦 <b>File:</b> <code>{dl_file.lower()}</code>"
-        btn = "Click here to download!"
+        m += f"  <b>Size:</b> <code>{size}</code>\n"
+        m += f"  <b>File:</b> <code>{dl_file.lower()}</code>"
+        btn = "⬇️ Download"
         button = InlineKeyboardMarkup().add(InlineKeyboardButton(text=btn, url=dl_link))
 
         await http.aclose()
         await message.reply(m, reply_markup=button)
 
 
-@register(cmds="samcheck")
+@decorator.register(cmds=["samcheck", "samget"])
 @disableable_dec("samcheck")
 async def check(message):
     try:
@@ -320,7 +230,7 @@ async def check(message):
         temp = msg_args[1]
         csc = msg_args[2]
     except IndexError:
-        m = "Please type your device <b>MODEL</b> and <b>CSC</b> into it!\ni.e <code>/samcheck SM-J710MN ZTO</code>!"
+        m = f"Please type your device <b>MODEL</b> and <b>CSC</b> into it!\ni.e <code>/{get_cmd(message)} SM-J710MN ZTO</code>!"
         await message.reply(m)
         return
 
@@ -332,6 +242,7 @@ async def check(message):
         test = await http.get(
             f"http://fota-cloud-dn.ospserver.net/firmware/{csc.upper()}/{model.upper()}/version.test.xml"
         )
+    await http.aclose()
     if test.status_code != 200:
         m = f"Couldn't find any firmwares for {temp.upper()} - {csc.upper()}, please refine your search or try again later!"
         await message.reply(m)
@@ -344,7 +255,7 @@ async def check(message):
     if page1.find("latest").text.strip():
         pda1, csc1, phone1 = page1.find("latest").text.strip().split("/")
         m = f"<b>MODEL:</b> <code>{model.upper()}</code>\n<b>CSC:</b> <code>{csc.upper()}</code>\n\n"
-        m += "<b>Latest Avaliable Firmware:</b>\n"
+        m += "<b>Latest available firmware:</b>\n"
         m += f"• PDA: <code>{pda1}</code>\n• CSC: <code>{csc1}</code>\n"
         if phone1:
             m += f"• Phone: <code>{phone1}</code>\n"
@@ -353,7 +264,7 @@ async def check(message):
         m += "\n"
     else:
         m = f"<b>No public release found for {model.upper()} and {csc.upper()}.</b>\n\n"
-    m += "<b>Latest Test Firmware:</b>\n"
+    m += "<b>Latest test firmware:</b>\n"
     if len(page2.find("latest").text.strip().split("/")) == 3:
         pda2, csc2, phone2 = page2.find("latest").text.strip().split("/")
         m += f"• PDA: <code>{pda2}</code>\n• CSC: <code>{csc2}</code>\n"
@@ -363,27 +274,173 @@ async def check(message):
             m += f"• Android: <code>{os2}</code>\n"
     else:
         md5 = page2.find("latest").text.strip()
-        m += f"• Hash: <code>{md5}</code>\n• Android: <code>{os2}</code>\n\n"
+        m += f"• Hash: <code>{md5}</code>\n• Android: <code>{os2}</code>\n"
 
-    await http.aclose()
-    await message.reply(m)
+    if get_cmd(message) == "samcheck":
+        await message.reply(m)
+
+    elif get_cmd(message) == "samget":
+        m += "\n<b>Download from below:</b>\n"
+        buttons = InlineKeyboardMarkup()
+        buttons.add(
+            InlineKeyboardButton(
+                "SamMobile",
+                url="https://www.sammobile.com/samsung/firmware/{}/{}/".format(
+                    model.upper(), csc.upper()
+                ),
+            ),
+            InlineKeyboardButton(
+                "SamFw",
+                url="https://samfw.com/firmware/{}/{}/".format(
+                    model.upper(), csc.upper()
+                ),
+            ),
+            InlineKeyboardButton(
+                "SamFrew",
+                url="https://samfrew.com/model/{}/region/{}/".format(
+                    model.upper(), csc.upper()
+                ),
+            ),
+        )
+
+        await message.reply(m, reply_markup=buttons)
+
+
+@decorator.register(cmds=["ofox", "of"])
+@disableable_dec("ofox")
+async def orangefox(message):
+    API_HOST = "https://api.orangefox.download/v3/"
+    try:
+        args = message.text.split()
+        codename = args[1].lower()
+    except BaseException:
+        codename = ""
+    try:
+        build_type = args[2].lower()
+    except BaseException:
+        build_type = ""
+
+    if build_type == "":
+        build_type = "stable"
+
+    if codename == "devices" or codename == "":
+        reply_text = (
+            f"<b>OrangeFox Recovery <i>{build_type}</i> is currently avaible for:</b>"
+        )
+
+        async with httpx.AsyncClient(http2=True) as http:
+            data = await http.get(
+                API_HOST + f"devices/?release_type={build_type}&sort=device_name_asc"
+            )
+            devices = json.loads(data.text)
+            await http.aclose()
+        try:
+            for device in devices["data"]:
+                reply_text += (
+                    f"\n - {device['full_name']} (<code>{device['codename']}</code>)"
+                )
+        except BaseException:
+            await message.reply(
+                f"'<b>{build_type}</b>' is not a type of build available, the types are just '<b>beta</b>' or '<b>stable</b>'."
+            )
+            return
+
+        if build_type == "stable":
+            reply_text += (
+                "\n\n"
+                + f"To get the latest Stable release use <code>/ofox (codename)</code>, for example: <code>/ofox raphael</code>"
+            )
+        elif build_type == "beta":
+            reply_text += (
+                "\n\n"
+                + f"To get the latest Beta release use <code>/ofox (codename) beta</code>, for example: <code>/ofox raphael beta</code>"
+            )
+        await message.reply(reply_text)
+        return
+
+    async with httpx.AsyncClient(http2=True) as http:
+        data = await http.get(API_HOST + f"devices/get?codename={codename}")
+        device = json.loads(data.text)
+        await http.aclose()
+    if data.status_code == 404:
+        await message.reply("Device is not found!")
+        return
+
+    async with httpx.AsyncClient(http2=True) as http:
+        data = await http.get(
+            API_HOST
+            + f"releases/?codename={codename}&type={build_type}&sort=date_desc&limit=1"
+        )
+        if data.status_code == 404:
+            btn = "Device's page"
+            url = f"https://orangefox.download/device/{device['codename']}"
+            button = InlineKeyboardMarkup().add(InlineKeyboardButton(text=btn, url=url))
+            await message.reply(
+                f"⚠️ There is no '<b>{build_type}</b>' releases for <b>{device['full_name']}</b>.",
+                reply_markup=button,
+                disable_web_page_preview=True,
+            )
+            return
+        find_id = json.loads(data.text)
+        await http.aclose()
+        for build in find_id["data"]:
+            file_id = build["_id"]
+
+    async with httpx.AsyncClient(http2=True) as http:
+        data = await http.get(API_HOST + f"releases/get?_id={file_id}")
+        release = json.loads(data.text)
+        await http.aclose()
+    if data.status_code == 404:
+        await message.reply("Release is not found!")
+        return
+
+    reply_text = f"<u><b>OrangeFox Recovery <i>{build_type}</i> release</b></u>\n"
+    reply_text += ("  <b>Device:</b> {fullname} (<code>{codename}</code>)\n").format(
+        fullname=device["full_name"], codename=device["codename"]
+    )
+    reply_text += ("  <b>Version:</b> {}\n").format(release["version"])
+    reply_text += ("  <b>Release date:</b> {}\n").format(
+        time.strftime("%d/%m/%Y", time.localtime(release["date"]))
+    )
+
+    reply_text += ("  <b>Maintainer:</b> {name}\n").format(
+        name=device["maintainer"]["name"]
+    )
+    changelog = release["changelog"]
+    try:
+        reply_text += "  <u><b>Changelog:</b></u>\n"
+        for entry_num in range(len(changelog)):
+            if entry_num == 10:
+                break
+            reply_text += f"    - {changelog[entry_num]}\n"
+    except BaseException:
+        pass
+
+    btn = "⬇️ Download"
+    url = release["mirrors"]["DL"]
+    button = InlineKeyboardMarkup().add(InlineKeyboardButton(text=btn, url=url))
+    await message.reply(reply_text, reply_markup=button, disable_web_page_preview=True)
+    return
 
 
 __mod_name__ = "Android"
 
 __help__ = """
+Module specially made for Android users.
+
 <b>GSI</b>
 - /phh: Get the latest PHH AOSP GSIs.
 - /phhmagisk: Get the latest PHH Magisk.
 
 <b>Device firmware:</b>
-- /miui (codename): Xiaomi only - gets latest MIUI download links for the given device.
-- /realmeui (codename): Realme only - gets latest RealmeUI download links for the given device.
 - /samcheck (model) (csc): Samsung only - shows the latest firmware info for the given device, taken from samsung servers.
+- /samget (model) (csc): Similar to the <code>/samcheck</code> command but having download buttons.
 
 <b>Misc</b>
 - /magisk: Get latest Magisk releases.
-- /twrp (codename): Gets latest twrp for the android device using the codename.
+- /twrp (codename): Gets latest TWRP for the android device using the codename.
+- /ofox (codename): Gets latest OFRP for the android device using the codename.
+- /ofox devices: Sends the list of devices with stable releases supported by OFRP.
 - /models (codename): Search for Android device models using codename.
 - /whatis (codename): Find out which smartphone is using the codename.
 """
